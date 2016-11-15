@@ -1,0 +1,184 @@
+#pragma warning(disable:4244)
+#pragma warning(disable:4101)
+#pragma warning(disable:4305)
+
+#define GetPlayerByIndex(LTClientShell, dwID) (CPlayer*)(LTClientShell + (dwID * dwCPlayerSize) + dwCPlayerStart)
+
+bool Trans3DTo2D (LPDIRECT3DDEVICE9 pDevice, D3DXVECTOR3 *InOut)
+{
+	D3DXVECTOR3 vScreen;
+	D3DXVECTOR3 PlayerPos(InOut->x, InOut->y, InOut->z);
+	D3DVIEWPORT9 viewPort = {0};
+	D3DXMATRIX projection, view, world;
+	pDevice->GetTransform(D3DTS_VIEW, &view);
+	pDevice->GetTransform(D3DTS_PROJECTION, &projection);
+	pDevice->GetTransform(D3DTS_WORLD, &world);
+	pDevice->GetViewport(&viewPort);
+	D3DXVec3Project(&vScreen, &PlayerPos, &viewPort, &projection, &view, &world);
+	if (vScreen.z < 1.0f && vScreen.x > 0.0f && vScreen.y > 0.0f && vScreen.x < viewPort.Width && vScreen.y < viewPort.Height)
+	{
+		*InOut = vScreen;
+		return true;	
+	}
+	return false;
+}
+
+bool IsValidClient (CPlayer* Clients)
+{
+	if ((Clients != 0) && (Clients->Health >> 0))
+		return true;
+	return false;
+}
+
+bool isEntered()
+{
+	DWORD CShellBase = (DWORD)GetModuleHandleA(eCShell);
+	DWORD pWeaponMgr = *(DWORD*)(CShellBase+dw_pWeaponMgr);
+	if(pWeaponMgr > 0)
+		return true;
+	return false;
+}
+
+LPD3DXLINE g_pLine =NULL;
+void DrawLine(LPDIRECT3DDEVICE9 pDevice, float x, float y, float x2, float y2 ,D3DCOLOR Color)
+{
+	static D3DXVECTOR2 vLine1[2];
+	vLine1[0].x = x; 
+	vLine1[0].y = y; 
+	vLine1[1].x = x2; 
+	vLine1[1].y = y2;
+	DWORD dwOld_D3DRS_COLORWRITEENABLE;
+	pDevice->GetRenderState(D3DRS_COLORWRITEENABLE, &dwOld_D3DRS_COLORWRITEENABLE); 
+	pDevice->SetRenderState(D3DRS_COLORWRITEENABLE, 0xffffffff);
+	g_pLine->SetWidth(1);
+	g_pLine->SetAntialias(false);
+	g_pLine->SetGLLines(false);
+	g_pLine->Begin();
+	g_pLine->Draw(vLine1, 2, Color);
+	g_pLine->End();
+
+	pDevice->SetRenderState(D3DRS_COLORWRITEENABLE, dwOld_D3DRS_COLORWRITEENABLE);
+	
+}
+
+char GetMyIndex (DWORD pLTCLientShell)
+{
+	if (pLTCLientShell)
+	{
+		BYTE clients = *(BYTE*)(pLTCLientShell + dwCPlayerStart);
+		if (clients < 16)
+			return *(char*)(pLTCLientShell + clients * dwCPlayerSize + MEOffset);
+	}
+	return -1;
+}
+
+bool IsTM (DWORD pLTClientShell, CPlayer* pPlayer)
+{
+	bool IsAlly = true;
+	CPlayer* Me = GetPlayerByIndex(pLTClientShell, GetMyIndex(pLTClientShell));
+	if(Me->Team != pPlayer->Team) 
+		IsAlly = false;
+
+	return IsAlly;
+}
+
+void GetBonePositionEx (cObject* obj, UINT Bone, Transform* Trans)
+{
+	DWORD CShellBase = (DWORD)GetModuleHandleA(eCShell);
+	if(!CShellBase) return;
+	DWORD pLTModel = *(DWORD*)(CShellBase+dw_pLTModel);
+
+	__asm
+	{
+		MOV ECX,pLTModel
+		MOV EDX,DWORD PTR DS:[ECX]
+		MOV EDX,DWORD PTR DS:[EDX + 0x3C]
+		PUSH 1
+		PUSH Trans
+		PUSH Bone
+		PUSH obj
+		CALL EDX
+	}
+}
+
+void GetNodePosition (cObject* obj, UINT Bone, D3DXVECTOR3 &Out)
+{
+	Transform Trans;
+	GetBonePositionEx(obj, Bone, &Trans);
+	Out = Trans.Pos;
+	Out.y += 5;
+}
+
+void DrawBone (LPDIRECT3DDEVICE9 pDevice, cObject *Obj, UINT iStart, UINT iEnd, D3DCOLOR Color)
+{
+	D3DXVECTOR3 StartPos, EndPos;
+	GetNodePosition(Obj, iStart, StartPos);
+	GetNodePosition(Obj, iEnd, EndPos);
+
+	if (Trans3DTo2D(pDevice, &StartPos) && Trans3DTo2D(pDevice, &EndPos))
+		DrawLine(pDevice, StartPos.x, StartPos.y, EndPos.x, EndPos.y,Color);
+}
+
+D3DXVECTOR3 GetBonePosition (cObject* obj, UINT Bone)
+{
+	Transform Trans;
+	GetBonePositionEx(obj,Bone,&Trans);
+	return (Trans.Pos);
+}
+
+void DrawSkeleton(LPDIRECT3DDEVICE9 pDevice, CPlayer* pPlayer, D3DCOLOR Color)
+{
+	DrawBone(pDevice, pPlayer->Object, 6, 0, Color);
+	DrawBone(pDevice, pPlayer->Object, 5, 6, Color);
+	DrawBone(pDevice, pPlayer->Object, 4, 5, Color);
+	DrawBone(pDevice, pPlayer->Object, 3, 4, Color);
+	DrawBone(pDevice, pPlayer->Object, 2, 3, Color);
+	DrawBone(pDevice, pPlayer->Object, 1, 2, Color);
+	DrawBone(pDevice, pPlayer->Object, 21, 1, Color);
+	DrawBone(pDevice, pPlayer->Object, 22, 21, Color);
+	DrawBone(pDevice, pPlayer->Object, 23, 22, Color);
+	DrawBone(pDevice, pPlayer->Object, 24, 23, Color);
+	DrawBone(pDevice, pPlayer->Object, 25, 1, Color);
+	DrawBone(pDevice, pPlayer->Object, 26, 25, Color);
+	DrawBone(pDevice, pPlayer->Object, 27, 26, Color);
+	DrawBone(pDevice, pPlayer->Object, 28, 27, Color);
+	DrawBone(pDevice, pPlayer->Object, 14, 5, Color);
+	DrawBone(pDevice, pPlayer->Object, 15, 14, Color);
+	DrawBone(pDevice, pPlayer->Object, 16, 15, Color);
+	DrawBone(pDevice, pPlayer->Object, 17, 16, Color);
+	DrawBone(pDevice, pPlayer->Object, 18, 17, Color);
+	DrawBone(pDevice, pPlayer->Object, 19, 17, Color);
+	DrawBone(pDevice, pPlayer->Object, 20, 17, Color);
+	DrawBone(pDevice, pPlayer->Object, 7, 5, Color);
+	DrawBone(pDevice, pPlayer->Object, 8, 7, Color);
+	DrawBone(pDevice, pPlayer->Object, 9, 8, Color);
+	DrawBone(pDevice, pPlayer->Object, 10, 9, Color);
+	DrawBone(pDevice, pPlayer->Object, 11, 10, Color);
+	DrawBone(pDevice, pPlayer->Object, 12, 10, Color);
+	DrawBone(pDevice, pPlayer->Object, 13, 10, Color);
+}
+
+VOID xxxSex(LPDIRECT3DDEVICE9 pDevice)
+{
+	DWORD CShellBase = (DWORD)GetModuleHandleA(eCShell);
+	if(CShellBase)
+	{
+		DWORD pLTClientShell = *(DWORD*)(CShellBase+dw_pLTClientShell);
+		CPlayer* Me = GetPlayerByIndex(pLTClientShell, GetMyIndex(pLTClientShell));
+		for(int i = 0; i<16; i++)
+		{
+			CPlayer* pPlayer = GetPlayerByIndex(pLTClientShell, i);
+			if(IsValidClient(pPlayer) && Me != pPlayer)
+			{
+				D3DXVECTOR3 Body = GetBonePosition(pPlayer->Object, 2);
+				if(!IsTM(pLTClientShell, pPlayer))
+				{
+					if(Trans3DTo2D(pDevice,&Body))
+					{
+						DrawSkeleton(pDevice, pPlayer, D3DCOLOR_ARGB(255,255,0,0));
+					}
+				}
+			}
+		}
+	} 
+}
